@@ -1,5 +1,28 @@
+const express = require('express');
 const axios = require('axios');
+const app = express();
 
+// --------------------------
+// Render 必须的配置：监听动态端口 + 绑定0.0.0.0
+// --------------------------
+const PORT = process.env.PORT || 3000;
+
+// 跨域配置
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+app.use(express.json());
+
+// --------------------------
+// 你的配置信息（Token如果过期了，在这里更新）
+// --------------------------
 const CONFIG = {
     token: "179fcc11-c075-43fa-979b-5e9be8e732c3",
     cookie: "token=179fcc11-c075-43fa-979b-5e9be8e732c3; MOBILE=306b8151-8d38-4104-a239-c434038f33f7",
@@ -9,8 +32,13 @@ const CONFIG = {
     stopUrl: "https://cdz.xiaoyouwulian.com/web-wechart/agent/charge/equipment/net/remote/send/stop"
 };
 
+// --------------------------
+// 核心：启动充电桩
+// --------------------------
 async function sendRunRequest(port, duration) {
     const timestamp = Date.now();
+    console.log(`🚀 启动端口${port}，时长${duration}分钟`);
+    
     try {
         const response = await axios.post(
             `${CONFIG.runUrl}?t=${timestamp}`,
@@ -31,16 +59,25 @@ async function sendRunRequest(port, duration) {
                 timeout: 15000
             }
         );
+
+        console.log(`📡 服务器返回：${JSON.stringify(response.data)}`);
         return response.data && response.data.code === 200 
-            ? { success: true } 
+            ? { success: true, message: "操作成功！" } 
             : { success: false, error: response.data?.msg || '未知错误' };
+
     } catch (error) {
+        console.log(`❌ 请求失败：${error.message}`);
         return { success: false, error: error.message };
     }
 }
 
+// --------------------------
+// 核心：停止充电桩
+// --------------------------
 async function sendStopRequest(port) {
     const timestamp = Date.now();
+    console.log(`🛑 停止端口${port}`);
+    
     try {
         const response = await axios.post(
             `${CONFIG.stopUrl}?t=${timestamp}`,
@@ -61,47 +98,41 @@ async function sendStopRequest(port) {
                 timeout: 15000
             }
         );
+
+        console.log(`📡 服务器返回：${JSON.stringify(response.data)}`);
         return response.data && response.data.code === 200 
-            ? { success: true } 
+            ? { success: true, message: "操作成功！" } 
             : { success: false, error: response.data?.msg || '未知错误' };
+
     } catch (error) {
+        console.log(`❌ 请求失败：${error.message}`);
         return { success: false, error: error.message };
     }
 }
 
-// Vercel 原生函数写法（绕过所有express和跨域问题）
-module.exports = async (req, res) => {
-    // 强制设置跨域头
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+// --------------------------
+// API 接口
+// --------------------------
+app.get('/', (req, res) => {
+    res.send('✅ 充电桩控制服务运行正常！');
+});
 
-    // 处理预检请求
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
+app.post('/api/start', async (req, res) => {
+    const { port, duration } = req.body;
+    const result = await sendRunRequest(port, duration);
+    res.json(result);
+});
 
-    try {
-        const { method, url, body } = req;
+app.post('/api/stop', async (req, res) => {
+    const { port } = req.body;
+    const result = await sendStopRequest(port);
+    res.json(result);
+});
 
-        if (url === '/' && method === 'GET') {
-            return res.status(200).json({ message: '✅ 充电桩控制服务运行正常！' });
-        }
-
-        if (url === '/start' && method === 'POST') {
-            const { port, duration } = JSON.parse(body || '{}');
-            const result = await sendRunRequest(port, duration);
-            return res.status(200).json(result);
-        }
-
-        if (url === '/stop' && method === 'POST') {
-            const { port } = JSON.parse(body || '{}');
-            const result = await sendStopRequest(port);
-            return res.status(200).json(result);
-        }
-
-        return res.status(404).json({ error: 'Not Found' });
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
-    }
-};
+// --------------------------
+// Render 必须的监听配置
+// --------------------------
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 服务已启动，监听端口：${PORT}`);
+    console.log(`🌐 公网访问地址：https://${process.env.RENDER_EXTERNAL_HOSTNAME}`);
+});
